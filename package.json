@@ -1,0 +1,11 @@
+{
+  "name": "agentpay",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The checkout layer for agents. Any API charges in the token it wants, and the paying agent uses whatever it holds.",
+  "type": "module",
+  "engines": { "node": ">=23.6" },
+  "scripts": {
+    "spike:quote": "node --env-file-if-exists=.env spikes/dry-quote.ts"
+  }
+}
