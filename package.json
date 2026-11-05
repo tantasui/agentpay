@@ -4,8 +4,18 @@
   "private": true,
   "description": "The checkout layer for agents. Any API charges in the token it wants, and the paying agent uses whatever it holds.",
   "type": "module",
-  "engines": { "node": ">=23.6" },
+  "engines": {
+    "node": ">=23.6"
+  },
   "scripts": {
-    "spike:quote": "node --env-file-if-exists=.env spikes/dry-quote.ts"
+    "test": "node --test \"test/*.test.ts\"",
+    "typecheck": "tsc",
+    "spike:quote": "node --env-file-if-exists=.env spikes/dry-quote.ts",
+    "spike:paywall": "node --env-file-if-exists=.env spikes/paywall-server.ts",
+    "spike:read402": "node --env-file-if-exists=.env spikes/read-402.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2"
   }
 }

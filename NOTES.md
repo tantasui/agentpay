@@ -2,6 +2,48 @@
 
 Findings from testing the live 1Click API. Tested Nov 5, 2026, with no API key.
 
+## MON-80 and MON-82: the 402 and the source asset
+
+An unpaid request gets this response:
+
+```json
+{
+  "error": "payment_required",
+  "payment": {
+    "version": 1,
+    "requestId": "8437a8f4-68eb-400d-9da4-016064139eeb",
+    "amount": "200000000000000",
+    "assetId": "nep141:base.omft.near",
+    "chain": "base",
+    "symbol": "ETH",
+    "decimals": 18,
+    "recipient": "0x2527D02599Ba641c19FEa793cD0F167589a0f10D",
+    "expiresAt": "2026-11-05T14:02:16.435Z"
+  }
+}
+```
+
+After paying, the client retries with the request id in the `x-payment-request-id` header.
+
+### Hooks for MON-81 and MON-86
+
+`createPaywall` in `src/seller/paywall.ts` takes two optional functions. Neither has a real implementation yet.
+
+- **`onIssue(request)`:** called before a request is issued, so MON-81 can store it. If it throws, the seller answers 500 and issues nothing.
+- **`verify(requestId, req)`:** decides whether a request id has been paid. Return true to serve. If it throws, the seller answers 500 and serves nothing.
+
+With no `verify`, nothing is ever served, so today every request gets a 402.
+
+### Open: matching a payment to a request
+
+A balance check alone cannot tell who paid. Two requests at the same price look identical, so one agent could claim another's payment. Settle this before building MON-86.
+
+### What the client does
+
+- **Holdings:** `listSolanaHoldings` reads SOL and SPL tokens. Solana is the only chain so far. It keeps 0.005 SOL back for fees, so that SOL is never offered as a source.
+- **Choice:** `pickSourceAsset` picks the most valuable supported holding worth at least 1.05 times the price. It uses token list prices as a filter only. The quote decides the real cost (MON-83).
+- **Not checked:** whether the wallet has enough SOL to send an SPL deposit. A wallet with USDC and no SOL is still chosen, and the deposit would then fail (MON-84).
+
 ## MON-78: exact-output quote, Solana USDC to Base ETH
 
 **Result: `amountOut` equalled the requested amount, to the wei, on every quote the API accepted.** That covers 0.00011, 0.00012, 0.0002 and 0.001 ETH. A committed quote also matched. Reproduce with `npm run spike:quote`.
@@ -29,7 +71,7 @@ No swap has been run. These results show what the API quotes, not what a seller 
 
 ### Question for the team
 
-**The demo agent cannot hold only Solana USDC (MON-84, MON-89).** The deposit is a Solana transaction, so the agent also needs SOL for the fee. It also needs SOL for token account rent if the deposit address has no USDC account yet. Either fund the agent with a little SOL and say so in the demo, or sponsor the fee. This comes from the transaction structure and has not been tested on-chain.
+**The demo agent cannot hold only Solana USDC (MON-84, MON-89).** The deposit is a Solana transaction, so the agent also needs SOL for the fee. It also needs SOL for token account rent if the deposit address has no USDC account yet. That rent is 2,039,280 lamports, about 0.002 SOL or $0.20, which is close to the price of the demo call. Either fund the agent with a little SOL and say so in the demo, or sponsor the fee. This comes from the transaction structure and has not been tested on-chain.
 
 ## MON-76: near-intents skill compared with the API
 
