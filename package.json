@@ -12,7 +12,8 @@
     "typecheck": "tsc",
     "spike:quote": "node --env-file-if-exists=.env spikes/dry-quote.ts",
     "spike:paywall": "node --env-file-if-exists=.env spikes/paywall-server.ts",
-    "spike:read402": "node --env-file-if-exists=.env spikes/read-402.ts"
+    "spike:read402": "node --env-file-if-exists=.env spikes/read-402.ts",
+    "spike:poll": "node --env-file-if-exists=.env spikes/poll-status.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

@@ -44,6 +44,20 @@ A balance check alone cannot tell who paid. Two requests at the same price look 
 - **Choice:** `pickSourceAsset` picks the most valuable supported holding worth at least 1.05 times the price. It uses token list prices as a filter only. The quote decides the real cost (MON-83).
 - **Not checked:** whether the wallet has enough SOL to send an SPL deposit. A wallet with USDC and no SOL is still chosen, and the deposit would then fail (MON-84).
 
+## MON-85: polling swap status
+
+`pollSwapStatus` in `src/client/poll-status.ts` polls until a terminal status and logs the elapsed time. Watch a swap with `npm run spike:poll -- <depositAddress>`.
+
+- **Terminal:** `SUCCESS`, `REFUNDED`, `FAILED`, `INCOMPLETE_DEPOSIT`. Any other status keeps polling, including `KNOWN_DEPOSIT_TX` and statuses we do not recognise.
+- **`INCOMPLETE_DEPOSIT`:** the payment has failed, but the spec says the refund comes by the deadline, so the money can arrive later.
+- **Failed checks:** network errors, 429s, 5xx and bad JSON are retried with backoff. 400, 401, 403 and 404 stop at once.
+- **Timeout:** throws `SwapStatusTimeout` after 10 minutes by default. The swap may still finish, so the caller must not pay again.
+- **`SUCCESS` is not proof of payment.** The seller still checks its own address (MON-86).
+- **Naming a swap:** use the deposit address. The `correlationId` in a status response changes on every call, so it cannot identify a swap. The status response did not echo the quote's id either.
+- **Elapsed time:** pass `startedAt` as the time the deposit was sent. MON-84 and MON-88 should do this, or the time leaves out the deposit.
+
+Tested live: a pending swap stays pending and times out, and an unknown address stops with a 404. Status works with no API key. **No real swap has reached a terminal status yet.** Those paths are tested with fake responses only, so check them on the first real swap (MON-79).
+
 ## MON-78: exact-output quote, Solana USDC to Base ETH
 
 **Result: `amountOut` equalled the requested amount, to the wei, on every quote the API accepted.** That covers 0.00011, 0.00012, 0.0002 and 0.001 ETH. A committed quote also matched. Reproduce with `npm run spike:quote`.
@@ -66,8 +80,9 @@ No swap has been run. These results show what the API quotes, not what a seller 
    - The `deadline` in the request is when refunds begin if the swap has not completed.
    - The `deadline` in the response is when the deposit address goes inactive and "funds may be lost".
 3. **The expired-quote demo is untested (MON-87, demo step 7).** Whether a refund arrives soon after the requested deadline is unknown. Testing it needs a small real deposit, confirmed by a human. Do this early, because a 72-hour wait would not fit the demo.
-4. **Dry quotes have no deadline (MON-78, demo step 3).** They also have no deposit address. Show the payer the deadline the client requested, or get it from a committed quote.
-5. **The max-amount guard should check `amountIn` (MON-83).** `maxAmountIn` is not returned. `amountIn` includes the slippage buffer, and the API documents that any excess is refunded to `refundTo`.
+4. **A refund costs about $0.25 (MON-84, MON-87, demo step 7).** The status response shows `refundFee: 251578`, which the spec defines as the fee for refunding in the origin asset, so 0.25 USDC. It was the same on quotes of $0.48, $2.40 and $24. On a $0.48 payment the payer would get back about $0.23. This is what the API reports: no real refund has been run. Show this cost before approval, and say "refunded minus the fee" in the demo. A higher price makes the fee a smaller share.
+5. **Dry quotes have no deadline (MON-78, demo step 3).** They also have no deposit address. Show the payer the deadline the client requested, or get it from a committed quote.
+6. **The max-amount guard should check `amountIn` (MON-83).** `maxAmountIn` is not returned. `amountIn` includes the slippage buffer, and the API documents that any excess is refunded to `refundTo`.
 
 ### Question for the team
 

@@ -6,7 +6,7 @@ A seller adds middleware that answers with an HTTP 402 and a payment request pri
 
 Built for NEAR HACKATHON, Nov 1–14, 2026. Tracks: Unstoppable DeFi, Agent Economy.
 
-**Status:** early. The seller's 402 and the client's choice of source asset work. Payment verification, the swap and the deposit are not built yet. See [NOTES.md](NOTES.md) for what has been tested so far.
+**Status:** early. The seller's 402, the client's choice of source asset and swap status polling work. Payment verification and the deposit are not built yet, and no real swap has been run. See [NOTES.md](NOTES.md) for what has been tested so far.
 
 ## Run the quote spike
 
