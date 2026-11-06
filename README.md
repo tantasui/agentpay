@@ -6,7 +6,7 @@ A seller adds middleware that answers with an HTTP 402 and a payment request pri
 
 Built for NEAR HACKATHON, Nov 1–14, 2026. Tracks: Unstoppable DeFi, Agent Economy.
 
-**Status:** early. The seller's 402, the client's choice of source asset and swap status polling work. Payment verification and the deposit are not built yet, and no real swap has been run. See [NOTES.md](NOTES.md) for what has been tested so far.
+**Status:** every step is built, but they are not wired together yet (MON-88), and no real swap has been run. Each step has been checked against mainnet without moving funds: `npm run spike:dryrun`. See [NOTES.md](NOTES.md) for what has been tested so far.
 
 ## Run the quote spike
 

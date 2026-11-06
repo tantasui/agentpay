@@ -1,6 +1,8 @@
 # Build notes
 
-Findings from testing the live 1Click API. Tested Nov 5, 2026, with no API key.
+Findings from testing the live 1Click API, Solana and Base. Tested Nov 5 and 6, 2026, with no API key.
+
+**Connection timeouts:** connecting to 1Click takes 240 to 390 ms from here. Node gives up on each connection attempt after 250 ms by default, so `fetch` fails with `ETIMEDOUT` while curl works. Every npm script passes `--network-family-autoselection-attempt-timeout=2000`. Do the same when running anything with `node` directly.
 
 ## MON-80 and MON-82: the 402 and the source asset
 
@@ -25,24 +27,60 @@ An unpaid request gets this response:
 
 After paying, the client retries with the request id in the `x-payment-request-id` header.
 
-### Hooks for MON-81 and MON-86
-
-`createPaywall` in `src/seller/paywall.ts` takes two optional functions. Neither has a real implementation yet.
-
-- **`onIssue(request)`:** called before a request is issued, so MON-81 can store it. If it throws, the seller answers 500 and issues nothing.
-- **`verify(requestId, req)`:** decides whether a request id has been paid. Return true to serve. If it throws, the seller answers 500 and serves nothing.
-
-With no `verify`, nothing is ever served, so today every request gets a 402.
-
-### Open: matching a payment to a request
-
-A balance check alone cannot tell who paid. Two requests at the same price look identical, so one agent could claim another's payment. Settle this before building MON-86.
+After paying, the client retries with two headers: `x-payment-request-id` and `x-payment-deposit-address`, the 1Click deposit address it paid into.
 
 ### What the client does
 
 - **Holdings:** `listSolanaHoldings` reads SOL and SPL tokens. Solana is the only chain so far. It keeps 0.005 SOL back for fees, so that SOL is never offered as a source.
 - **Choice:** `pickSourceAsset` picks the most valuable supported holding worth at least 1.05 times the price. It uses token list prices as a filter only. The quote decides the real cost (MON-83).
-- **Not checked:** whether the wallet has enough SOL to send an SPL deposit. A wallet with USDC and no SOL is still chosen, and the deposit would then fail (MON-84).
+
+## MON-81, MON-83, MON-84, MON-86: from 402 to a verified payment
+
+### How a payment is matched to a request
+
+A balance check alone cannot tell who paid, so the seller ties each payment to one request:
+
+1. **The client sets the quote's `deadline` to the request's `expiresAt`.** That is also the right deadline: refunds begin when the seller stops accepting the request.
+2. **The seller keeps `expiresAt` unique** across requests, to the millisecond.
+3. **The seller asks 1Click about the deposit address itself.** The status response echoes the original quote request. The seller requires `SUCCESS`, its own address as recipient, its asset, `EXACT_OUTPUT`, the exact price, and a `deadline` equal to this request's `expiresAt`.
+4. **The seller checks Base.** The delivery transaction must have succeeded and paid at least the price. A direct transfer is checked by its value. A delivery inside a contract call is checked by the seller's balance change in that block.
+5. **Each request id and each deposit address is used once.** Two retries arriving together cannot both be served.
+
+Someone who copies another payer's deposit address fails step 3, because that quote's deadline matches the other payer's request.
+
+`sessionId` would have been cleaner, but the status response does not echo it.
+
+### The pieces
+
+- **MON-81, `src/seller/request-store.ts`:** issued requests, in memory. A request id is served once. Expired ids are refused after a 5-minute grace period, so a swap that completes just before expiry can still be served. A restart forgets everything, so old ids are refused.
+- **MON-83, `src/client/quote.ts`:** `requestQuote` gets a committed exact-output quote. It rejects a quote whose `amountIn` exceeds the payer's maximum or balance, or that would not deliver the exact price. It refuses requests with less than a minute left.
+- **MON-84, `src/client/deposit.ts`:** `approveAndDeposit` checks the payer has the SOL for fees and token account rent before asking, then asks for approval, then sends. Nothing is sent without approval. `askInTerminal` approves only when a human types `yes`. It returns `sentAt` for `pollSwapStatus`. The key comes from `SOLANA_PRIVATE_KEY`. Only SOL and classic SPL tokens are supported.
+- **MON-86, `src/seller/verify-payment.ts`:** `createPaymentVerifier` builds the paywall's `verify` hook from the steps above. It returns false when a payment does not check out, and throws when 1Click or Base cannot be reached, so the client gets a 500 and can retry.
+
+### Decided by default, open to change
+
+- **The agent holds a little SOL.** The client refuses clearly, before approval, if it cannot pay fees and rent. It does not sponsor fees.
+
+### Tested live, without moving funds
+
+`npm run spike:dryrun` runs each step against mainnet:
+
+- **Quote:** a $0.10 maximum is rejected, and a real quote is accepted.
+- **Deposit:** the real transaction, simulated from a real USDC holder's address, creates the deposit address's token account and transfers the USDC.
+- **Verifier:** it refuses an unpaid swap with `swap status is PENDING_DEPOSIT`.
+- **Base RPC:** receipts, transactions, and balances from 2,000 blocks back (over an hour) all work on the public endpoint.
+
+### Not tested until a real swap (MON-79)
+
+- **How 1Click delivers ETH on Base.** The verifier handles a direct transfer and a contract-call delivery, but which one happens is unknown.
+- **The echoed quote request on a completed swap.** It was checked on pending swaps only.
+- **Sending and confirming a real deposit.** Only the simulation has run.
+
+### Known limits
+
+- **1Click is trusted** to say which swap paid which recipient. The funds themselves are checked on Base.
+- **Contract-call deliveries are checked by balance change,** so other ETH arriving in the same block also counts.
+- **A verified payment is used up before the response is sent.** If the seller's handler then fails, the payer is not served.
 
 ## MON-85: polling swap status
 
@@ -54,7 +92,7 @@ A balance check alone cannot tell who paid. Two requests at the same price look 
 - **Timeout:** throws `SwapStatusTimeout` after 10 minutes by default. The swap may still finish, so the caller must not pay again.
 - **`SUCCESS` is not proof of payment.** The seller still checks its own address (MON-86).
 - **Naming a swap:** use the deposit address. The `correlationId` in a status response changes on every call, so it cannot identify a swap. The status response did not echo the quote's id either.
-- **Elapsed time:** pass `startedAt` as the time the deposit was sent. MON-84 and MON-88 should do this, or the time leaves out the deposit.
+- **Elapsed time:** pass `startedAt` as the time the deposit was sent. `approveAndDeposit` returns it as `sentAt`.
 
 Tested live: a pending swap stays pending and times out, and an unknown address stops with a 404. Status works with no API key. **No real swap has reached a terminal status yet.** Those paths are tested with fake responses only, so check them on the first real swap (MON-79).
 
@@ -84,9 +122,9 @@ No swap has been run. These results show what the API quotes, not what a seller 
 5. **Dry quotes have no deadline (MON-78, demo step 3).** They also have no deposit address. Show the payer the deadline the client requested, or get it from a committed quote.
 6. **The max-amount guard should check `amountIn` (MON-83).** `maxAmountIn` is not returned. `amountIn` includes the slippage buffer, and the API documents that any excess is refunded to `refundTo`.
 
-### Question for the team
+### The demo agent needs some SOL (MON-84, MON-89)
 
-**The demo agent cannot hold only Solana USDC (MON-84, MON-89).** The deposit is a Solana transaction, so the agent also needs SOL for the fee. It also needs SOL for token account rent if the deposit address has no USDC account yet. That rent is 2,039,280 lamports, about 0.002 SOL or $0.20, which is close to the price of the demo call. Either fund the agent with a little SOL and say so in the demo, or sponsor the fee. This comes from the transaction structure and has not been tested on-chain.
+The deposit is a Solana transaction, so the agent needs SOL for the fee. It also pays rent to create the deposit address's USDC account: 1,488,440 lamports, about 0.0015 SOL, as of Nov 6. The 2,039,280 lamports noted on Nov 5 was an older account's balance, not the current rent. The client checks this before asking for approval. Say in the demo that the agent holds a little SOL for fees.
 
 ## MON-76: near-intents skill compared with the API
 
