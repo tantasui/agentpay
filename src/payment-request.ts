@@ -19,6 +19,9 @@ export type PaymentRequest = {
 /** The client sends this header, set to the request id, when it retries after paying. */
 export const PAYMENT_HEADER = "x-payment-request-id";
 
+/** Sent with PAYMENT_HEADER: the 1Click deposit address the client paid into. */
+export const PAYMENT_DEPOSIT_HEADER = "x-payment-deposit-address";
+
 export const isAmount = (value: unknown): value is string =>
   typeof value === "string" && /^[1-9]\d*$/.test(value);
 

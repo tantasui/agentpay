@@ -43,6 +43,7 @@ test("gives each request its own id", async () => {
   const [a, b] = await Promise.all([fetch(url), fetch(url)]);
   const [first, second] = [parsePaymentRequest(await a.json()), parsePaymentRequest(await b.json())];
   assert.notEqual(first.requestId, second.requestId);
+  assert.notEqual(first.expiresAt, second.expiresAt, "expiresAt binds a payment to one request");
 });
 
 test("never serves a claimed payment when no verifier is configured", async () => {

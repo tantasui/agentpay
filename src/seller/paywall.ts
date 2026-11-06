@@ -46,6 +46,10 @@ export async function createPaywall(options: PaywallOptions): Promise<Paywall> {
   const token = tokens.find((t) => t.symbol === symbol && t.blockchain === chain);
   if (!token) throw new Error(`${symbol} on ${chain} is not supported by NEAR Intents`);
 
+  // expiresAt doubles as the quote deadline, which binds a payment to one request,
+  // so no two requests may share it.
+  let lastExpiry = 0;
+
   return async (req, res, next) => {
     let body: { error: string; payment?: PaymentRequest };
     try {
@@ -55,6 +59,7 @@ export async function createPaywall(options: PaywallOptions): Promise<Paywall> {
         return;
       }
 
+      lastExpiry = Math.max(Date.now() + ttlMs, lastExpiry + 1);
       const payment: PaymentRequest = {
         version: 1,
         requestId: randomUUID(),
@@ -64,7 +69,7 @@ export async function createPaywall(options: PaywallOptions): Promise<Paywall> {
         symbol,
         decimals: token.decimals,
         recipient,
-        expiresAt: new Date(Date.now() + ttlMs).toISOString(),
+        expiresAt: new Date(lastExpiry).toISOString(),
       };
       await onIssue?.(payment);
       body = { error: "payment_required", payment };
